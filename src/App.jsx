@@ -6,7 +6,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [highlights, setHighlights] = useState({}); // { fileId: [{ start, end, text }] }
   const allHighlights = Object.values(highlights).flat().map(h => h.text);
-  const combinedQuery = allHighlights.join(' ');
+  // const combinedQuery = allHighlights.join(' ');
 
   // Refs for scrolling
   const filesGridRef = useRef(null);
@@ -93,42 +93,67 @@ function App() {
   const handleTextSelection = (fileId) => {
     const selection = window.getSelection();
     const selectedText = selection.toString().trim();
-
     if (!selectedText) return;
-
+  
     const range = selection.getRangeAt(0);
-    const parentNode = range.commonAncestorContainer;
-
-    // Find the index of the selection within the full text
     const file = files.find(f => f.id === fileId);
     if (!file) return;
-
+  
     const content = file.content;
     const startIndex = content.indexOf(selectedText);
     if (startIndex === -1) return;
-
+  
     const newHighlight = {
       start: startIndex,
       end: startIndex + selectedText.length,
       text: selectedText,
     };
-
-    setHighlights(prev => ({
+  
+    // ✅ Prevent overlapping or duplicate highlights
+    const existing = highlights[fileId] || [];
+    const overlap = existing.some(
+      (h) =>
+        (newHighlight.start >= h.start && newHighlight.start < h.end) ||
+        (newHighlight.end > h.start && newHighlight.end <= h.end) ||
+        (newHighlight.start <= h.start && newHighlight.end >= h.end)
+    );
+  
+    if (overlap) {
+      alert("This text overlaps an existing highlight!");
+      selection.removeAllRanges();
+      return;
+    }
+  
+    // Add highlight
+    setHighlights((prev) => ({
       ...prev,
-      [fileId]: [...(prev[fileId] || []), newHighlight],
+      [fileId]: [...existing, newHighlight],
     }));
-
-    selection.removeAllRanges(); // clear text highlight
-
-    // Scroll to query builder after selection
+  
+    selection.removeAllRanges();
+  
     setTimeout(() => {
       if (queryBuilderRef.current) {
-        queryBuilderRef.current.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'start' 
+        queryBuilderRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
         });
       }
     }, 100);
+  };
+  
+  // ✅ Generate combined query based on file and text order
+  const getOrderedCombinedQuery = () => {
+    const orderedTexts = [];
+  
+    files.forEach((file) => {
+      const fileHighlights = (highlights[file.id] || []).sort(
+        (a, b) => a.start - b.start
+      );
+      fileHighlights.forEach((h) => orderedTexts.push(h.text));
+    });
+  
+    return orderedTexts.join(" ");
   };
 
   const removeHighlight = (fileId, index) => {
@@ -165,6 +190,8 @@ function App() {
     return parts;
   };
 
+  const combinedQuery = getOrderedCombinedQuery();
+  
   return (
     <div className="app-container">
       {/* Header */}
