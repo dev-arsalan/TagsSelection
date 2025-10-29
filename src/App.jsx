@@ -92,6 +92,7 @@ function App() {
 
   const handleTextSelection = (fileId) => {
     const selection = window.getSelection();
+    let currentText = selection.toString().split('');
     const selectedText = selection.toString().trim();
     if (!selectedText) return;
   
@@ -99,18 +100,53 @@ function App() {
     const file = files.find(f => f.id === fileId);
     if (!file) return;
   
-    const content = file.content;
-    const startIndex = content.indexOf(selectedText);
-    if (startIndex === -1) return;
+    // Find the container that holds the text content of this file
+    const contentEl = document.getElementById(`file-content-${fileId}`);
+    if (!contentEl) {
+      console.error(`No file content element found for fileId: ${fileId}`);
+      return;
+    }
+  
+    // Compute exact start index relative to the container text
+    const preCaretRange = range.cloneRange();
+    console.log(preCaretRange);
+    console.log(contentEl);
+    console.log(range.startContainer);
+    console.log(range.startOffset);
+    preCaretRange.selectNodeContents(contentEl);
+    let startIndex;
+    if(range.startOffset == 0){
+      preCaretRange.setEnd(range.startContainer, range.startOffset);
+      startIndex = preCaretRange.toString().length;
+    } else if(currentText[0] === ' '){
+      preCaretRange.setEnd(range.startContainer, range.startOffset - 1);
+      startIndex = preCaretRange.toString().length + 1;
+    } else if(range.startOffset == 1){
+      preCaretRange.setEnd(range.startContainer, range.startOffset - 1);
+      startIndex = preCaretRange.toString().length;
+    } else {
+      preCaretRange.setEnd(range.startContainer, range.startOffset - 1);
+      startIndex = preCaretRange.toString().length;
+    }
+    // preCaretRange.setEnd(range.startContainer, range.startOffset == 0 ? range.startOffset: currentText[0] === ' ' ? range.startOffset - 1: range.startOffset - 2);
+    // const startIndex = preCaretRange.toString().length + 1;
+    console.log(startIndex);
+    const endIndex = startIndex + selectedText.length;
+    
   
     const newHighlight = {
       start: startIndex,
-      end: startIndex + selectedText.length,
+      end: endIndex,
       text: selectedText,
     };
+    console.log(highlights);
+    console.log(newHighlight);
   
     // ✅ Prevent overlapping or duplicate highlights
     const existing = highlights[fileId] || [];
+    const isDuplicate = existing.some(
+      (h) => h.text === newHighlight.text
+    );
     const overlap = existing.some(
       (h) =>
         (newHighlight.start >= h.start && newHighlight.start < h.end) ||
@@ -118,6 +154,11 @@ function App() {
         (newHighlight.start <= h.start && newHighlight.end >= h.end)
     );
   
+    if (isDuplicate) {
+      alert("This exact text selection already exists!");
+      selection.removeAllRanges();
+      return;
+    }
     if (overlap) {
       alert("This text overlaps an existing highlight!");
       selection.removeAllRanges();
@@ -276,7 +317,7 @@ function App() {
                 <div className="content-preview">
                   <h5>Content Preview:</h5>
                   <div className="content-scroll" onMouseUp={() => handleTextSelection(file.id)}>
-                    <p className="file-content">
+                    <p className="file-content" id={`file-content-${file.id}`}>
                       {renderHighlightedText(file.id, file.content)}
                     </p>
                   </div>
