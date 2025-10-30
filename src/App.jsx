@@ -4,9 +4,8 @@ import './App.css'
 function App() {
   const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [highlights, setHighlights] = useState({}); // { fileId: [{ start, end, text }] }
+  const [highlights, setHighlights] = useState({});
   const allHighlights = Object.values(highlights).flat().map(h => h.text);
-  // const combinedQuery = allHighlights.join(' ');
 
   // Refs for scrolling
   const filesGridRef = useRef(null);
@@ -49,8 +48,6 @@ function App() {
       return
     }
 
-    const newFiles = [];
-
     validFiles.forEach(file => {
       const reader = new FileReader()
       
@@ -64,7 +61,6 @@ function App() {
         };
         
         setFiles(prevFiles => [...prevFiles, newFile]);
-        newFiles.push(newFile);
       }
       
       reader.onerror = () => {
@@ -74,7 +70,6 @@ function App() {
       reader.readAsText(file)
     });
 
-    // Scroll to files grid after processing
     setTimeout(() => {
       if (filesGridRef.current) {
         filesGridRef.current.scrollIntoView({ 
@@ -92,87 +87,114 @@ function App() {
 
   const handleTextSelection = (fileId) => {
     const selection = window.getSelection();
-    let currentText = selection.toString().split('');
     const selectedText = selection.toString().trim();
     if (!selectedText) return;
-  
-    const range = selection.getRangeAt(0);
+    
     const file = files.find(f => f.id === fileId);
     if (!file) return;
+
+    // Get the original file content
+    const originalText = file.content;
+
+    // Simple approach: Find all occurrences of the selected text in the original content
+    // and use the first one that doesn't overlap with existing highlights
+    const occurrences = [];
+    let startIndex = 0;
+
+
+    let positions = [];
+    let index = originalText.indexOf(selectedText);
+
+    while (index !== -1) {
+      positions.push(index);
+      index = originalText.indexOf(selectedText, index + selectedText.length);
+    }
+
+    console.log(`Count of "${selectedText}":`, positions.length);
+    console.log(`Positions:`, positions);
+    
+    if(positions.length === 1){
+      console.log('single');
+      while (startIndex < originalText.length) {
+        const index = originalText.indexOf(selectedText, startIndex);
   
-    // Find the container that holds the text content of this file
-    const contentEl = document.getElementById(`file-content-${fileId}`);
-    if (!contentEl) {
-      console.error(`No file content element found for fileId: ${fileId}`);
+  
+  
+        if (index === -1) break;
+        
+        occurrences.push({
+          start: index,
+          end: index + selectedText.length,
+          text: selectedText
+        });
+        
+        startIndex = index + 1;
+      }
+    } else {
+      console.log('more');
+      const contentElement = document.getElementById(`file-content-${fileId}`);
+      if (!contentElement) return;
+
+      // Get the selected range
+      const range = selection.getRangeAt(0);
+
+      // Create a temporary range covering the whole content
+      const preRange = document.createRange();
+      preRange.selectNodeContents(contentElement);
+      preRange.setEnd(range.startContainer, range.startOffset);
+
+      // Get start and end positions (relative to the full text)
+      const start = preRange.toString().length;
+      const end = start + selectedText.length;
+
+      console.log(`Selected text: "${selectedText}"`);
+      console.log(`Start position: ${start}, End position: ${end}`);
+      occurrences.push({
+        start: start,
+        end: end,
+        text: selectedText
+      });
+    }
+    
+
+    // Filter out occurrences that overlap with existing highlights
+    const existingHighlights = highlights[fileId] || [];
+    const validOccurrences = occurrences.filter(occurrence => {
+      return !existingHighlights.some(existing => 
+        (occurrence.start >= existing.start && occurrence.start < existing.end) ||
+        (occurrence.end > existing.start && occurrence.end <= existing.end) ||
+        (occurrence.start <= existing.start && occurrence.end >= existing.end)
+      );
+    });
+
+    if (validOccurrences.length === 0) {
+      alert("This text overlaps with existing highlights or cannot be found!");
+      selection.removeAllRanges();
       return;
     }
-  
-    // Compute exact start index relative to the container text
-    const preCaretRange = range.cloneRange();
-    console.log(preCaretRange);
-    console.log(contentEl);
-    console.log(range.startContainer);
-    console.log(range.startOffset);
-    preCaretRange.selectNodeContents(contentEl);
-    let startIndex;
-    if(range.startOffset == 0){
-      preCaretRange.setEnd(range.startContainer, range.startOffset);
-      startIndex = preCaretRange.toString().length;
-    } else if(currentText[0] === ' '){
-      preCaretRange.setEnd(range.startContainer, range.startOffset - 1);
-      startIndex = preCaretRange.toString().length + 1;
-    } else if(range.startOffset == 1){
-      preCaretRange.setEnd(range.startContainer, range.startOffset - 1);
-      startIndex = preCaretRange.toString().length;
-    } else {
-      preCaretRange.setEnd(range.startContainer, range.startOffset - 1);
-      startIndex = preCaretRange.toString().length;
-    }
-    // preCaretRange.setEnd(range.startContainer, range.startOffset == 0 ? range.startOffset: currentText[0] === ' ' ? range.startOffset - 1: range.startOffset - 2);
-    // const startIndex = preCaretRange.toString().length + 1;
-    console.log(startIndex);
-    const endIndex = startIndex + selectedText.length;
-    
-  
-    const newHighlight = {
-      start: startIndex,
-      end: endIndex,
-      text: selectedText,
-    };
-    console.log(highlights);
-    console.log(newHighlight);
-  
-    // ✅ Prevent overlapping or duplicate highlights
-    const existing = highlights[fileId] || [];
-    const isDuplicate = existing.some(
-      (h) => h.text === newHighlight.text
+
+    // Use the first valid occurrence
+    const newHighlight = validOccurrences[0];
+
+    // Check for exact duplicates
+    const isDuplicate = existingHighlights.some(
+      h => h.text === newHighlight.text
     );
-    const overlap = existing.some(
-      (h) =>
-        (newHighlight.start >= h.start && newHighlight.start < h.end) ||
-        (newHighlight.end > h.start && newHighlight.end <= h.end) ||
-        (newHighlight.start <= h.start && newHighlight.end >= h.end)
-    );
-  
+
     if (isDuplicate) {
       alert("This exact text selection already exists!");
       selection.removeAllRanges();
       return;
     }
-    if (overlap) {
-      alert("This text overlaps an existing highlight!");
-      selection.removeAllRanges();
-      return;
-    }
-  
+
     // Add highlight
     setHighlights((prev) => ({
       ...prev,
-      [fileId]: [...existing, newHighlight],
+      [fileId]: [...existingHighlights, newHighlight],
     }));
-  
+
     selection.removeAllRanges();
-  
+
     setTimeout(() => {
       if (queryBuilderRef.current) {
         queryBuilderRef.current.scrollIntoView({
@@ -182,8 +204,8 @@ function App() {
       }
     }, 100);
   };
-  
-  // ✅ Generate combined query based on file and text order
+
+  // Generate combined query based on file and text order
   const getOrderedCombinedQuery = () => {
     const orderedTexts = [];
   
@@ -208,17 +230,34 @@ function App() {
     const fileHighlights = highlights[fileId] || [];
     if (fileHighlights.length === 0) return text;
 
+    // Sort highlights by start position
+    const sortedHighlights = [...fileHighlights].sort((a, b) => a.start - b.start);
+    
     let parts = [];
     let lastIndex = 0;
 
-    fileHighlights.forEach((hl, idx) => {
-      parts.push(text.slice(lastIndex, hl.start));
+    sortedHighlights.forEach((hl, idx) => {
+      // Add text before highlight
+      if (hl.start > lastIndex) {
+        parts.push(text.slice(lastIndex, hl.start));
+      }
+      
+      // Add highlighted text
       parts.push(
         <span key={idx} className="highlight">
           {hl.text}
           <button
             className="remove-hl"
-            onClick={() => removeHighlight(fileId, idx)}
+            onClick={(e) => {
+              e.stopPropagation();
+              // Find the actual index in the original array
+              const originalIndex = highlights[fileId].findIndex(
+                h => h.start === hl.start && h.end === hl.end
+              );
+              if (originalIndex !== -1) {
+                removeHighlight(fileId, originalIndex);
+              }
+            }}
           >
             ×
           </button>
@@ -227,7 +266,11 @@ function App() {
       lastIndex = hl.end;
     });
 
-    parts.push(text.slice(lastIndex));
+    // Add remaining text after last highlight
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+
     return parts;
   };
 
